@@ -1,42 +1,256 @@
 rm(list=ls(all=TRUE))
-getwd()
-setwd("C:/Users/alexi/OneDrive/Documentos/R/Ages")
+
 library(readxl)
 library(dplyr)
 library(ggplot2)
 library(patchwork)
 library(plotly)
-data<-read_excel("raw_ages.xlsx")
+library(janitor)
+library(readxl)
+library(readr)
+library(purrr)
+library(fitdistrplus)
+library(MASS)
+raw_ages<-read_excel("raw_ages.xlsx")
 
-
-#XXXXXXXXXXXXXXXXXX  MEXICO (PUNTA MAROMA) ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
-data_mx<-data[data$source=="This paper" & data$group=="palmata",c(10:12)]
-data_mx_f<-data[data$source=="This paper",c(9:12)]
+#XXXXXXXXXXXXXXXXXX  MEXICO FULL AGES ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
+raw_mx <-raw_ages|>
+  filter(source == "This paper")
 
 #selecting appropiate bandwidth value
 library(stats)
 # Appliying Unbiased Cross-Validation (UCV) method
 #to select the optimal bandwidth for kernel density
-bw_mx_ucv <- bw.ucv(data_mx$t_ka)
+bw_rawmx_ucv <- bw.ucv(raw_mx$t_ka)
+bw_rawmx_ucv
+
+#WORKING ON I
+ggplot(raw_mx) +
+  aes(x = t_ka) +
+  geom_density(aes(y = after_stat(density), fill = group), alpha = 0.55, adjust = bw_rawmx_ucv) +
+  scale_fill_manual(values = c("palmata" = "#dc6601", "Other species" = "gray")) +
+  theme(strip.background = element_blank(), panel.background = element_blank(), legend.position = "none") +
+  scale_x_continuous(limits = c(0, 6), breaks = seq(0, 6, 0.5)) +
+  scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2)) +
+  theme(strip.background = element_blank(), panel.background = element_blank(), legend.position = "none", axis.title.x = element_blank()) +
+  annotate("rect", xmin = 0.71, xmax = 1.44, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
+  annotate("rect", xmin = 1.46, xmax = 1.81, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
+  annotate("rect", xmin = 2.47, xmax = 2.88, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
+  annotate("rect", xmin = 4.97, xmax = 5.46, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
+  geom_segment(aes(x = 0.6, y = 1.25, xend = 1.35, yend = 1.25), color = "black", linewidth = 2.25) +
+  geom_segment(aes(x = 1.9, y = 1.25, xend = 2.2, yend = 1.25), color = "black", linewidth = 2.25) +
+  geom_rug(aes(y = 1.5, colour = group), sides = "t", linewidth = 0.5, alpha = 0.5) +
+  scale_colour_manual(values = c("palmata" = "#dc6601", "Other species" = "gray"))
+
+
+#XXXXXXXXXXXXXXXXXX  MEXICO´s ACROPORID AGES ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
+# Exploring theoretical distributions for Monte Carlo simulation ----------
+
+# Fitting multiple distributions
+fit_exponential <- fitdist(ages, "exp")
+fit_lognormal <- fitdist(ages, "lnorm")
+fit_gamma <- fitdist(ages, "gamma")
+fit_uniforme <- fitdist(ages, "unif")
+
+# Q-Q plot
+par(mfrow = c(1, 1))
+qqcomp(
+  list(fit_exponential, fit_lognormal, fit_gamma, fit_uniforme),
+  legendtext = c("Exponential", "Log Normal", "Gamma", "uniform")
+)
+
+# Histogram with fitted density curves
+denscomp(
+  list(fit_exponential, fit_lognormal, fit_gamma, fit_uniforme),
+  legendtext = c("Exponential", "Log Normal", "Gamma", "uniform")
+)
+
+# Model selection with AIC and BIC
+aic_values <- c(fit_exponential$aic,
+                fit_lognormal$aic,
+                fit_gamma$aic,
+                fit_uniforme$aic)
+
+bic_values <- c(fit_exponential$bic,
+                fit_lognormal$bic,
+                fit_gamma$bic,
+                fit_uniforme$bic)
+
+# Dataframe
+Model.full <- data.frame(
+  Data = "All data",
+  Distribucion = c("Exponential", "Log Normal", "Gamma", "Uniform"),
+  AIC = aic_values,
+  BIC = bic_values
+)
+
+# Exclusion of the most recent 500 years
+ages500 <- age$t_ka[age$t_ka > 0.5]
+ages500
+ages
+# Fitting multiple distributions
+fit500_exponential <- fitdist(ages500, "exp")
+fit500_lognormal <- fitdist(ages500, "lnorm")
+fit500_gamma <- fitdist(ages500, "gamma")
+fit500_uniforme <- fitdist(ages500, "unif")
+
+# Q-Q plot
+qqcomp(
+  list(fit500_exponential, fit500_lognormal, fit500_gamma, fit500_uniforme),
+  legendtext = c("Exponential", "Log Normal", "Gamma", "uniform")
+)
+
+# Histogram with fitted density curves
+denscomp(
+  list(fit500_exponential, fit500_lognormal, fit500_gamma, fit500_uniforme),
+  legendtext = c("Exponential", "Log Normal", "Gamma", "uniform")
+)
+
+# Comparar AIC y BIC
+aic_values500 <- c(fit500_exponential$aic,
+                   fit500_lognormal$aic,
+                   fit500_gamma$aic,
+                   fit500_uniforme$aic)
+
+bic_values500 <- c(fit500_exponential$bic,
+                   fit500_lognormal$bic,
+                   fit500_gamma$bic,
+                   fit500_uniforme$bic)
+
+# Model selection with AIC and BIC
+Model.500 <- data.frame(
+  Data = "exclusion of 500 most recent years",
+  Distribucion = c("Exponential", "Log Normal", "Gamma", "Uniform"),
+  AIC = aic_values500,
+  BIC = bic_values500
+)
+
+models <- bind_rows(Model.full, Model.500)
+#Uniform distribution allows for a better fit in both scenarios  
+
+# Simulation using Uniform distribution ----------------------
+## Yucatan
+
+acrop <-raw_ages|>
+  filter(source == "This paper")|>
+  filter(species_2 == "BRAN")
+
+age_acrop <- acrop$t_ka
+
+bw_mx_ucv <- bw.ucv(age_acrop)
 bw_mx_ucv
-# Calcular la densidad con el ancho de banda seleccionado por el método de Sheather y Jones
-pdf0_mx_ucv <- density(data_mx$t_ka, bw = bw_mx_ucv)
-#Selecting Apal age data from the dataset (this paper)
 
+age_range <- 1000 * (max(age_acrop) - min(age_acrop))
 
-#XXXXXXXXXXXXXXXXXX  MEXICO (PUNTA MAROMA) ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
+intervals <- 100 #length of class intervals in years
+
+CI <- round(age_range/intervals, 0) # number of classes
+
+# Histogram to visualize the data
+hist(age_acrop,
+     breaks = CI, 
+     main = paste("Yucatan,", intervals, "years intervals"),
+     xlab = "Age (ka)",
+     ylab = "Frequency")
+
+# Defining class intervals
+breaks <- hist(age_acrop, 
+               breaks = CI, 
+               main = paste("Yucatan,", intervals, "years intervals"),
+               xlab = "Age (ka)",
+               ylab = "Frequency")$breaks
+
+# Calculate the observed frequencies
+observed <- hist(age_acrop, breaks = breaks, plot = FALSE)$counts
+
+# Function to identify sequences of zeros and their length
+gaps <- function(vector) {
+  secuencias <- data.frame(inicio = integer(), longitud = integer())
+  longitud_actual <- 0
+  inicio_secuencia <- NULL
+  
+  for (i in 1:length(vector)) {
+    if (vector[i] == 0) {
+      if (is.null(inicio_secuencia)) {
+        inicio_secuencia <- i
+      }
+      longitud_actual <- longitud_actual + 1
+    } else {
+      if (!is.null(inicio_secuencia)) {
+        secuencias <- rbind(secuencias, data.frame(inicio = inicio_secuencia, longitud = longitud_actual))
+        longitud_actual <- 0
+        inicio_secuencia <- NULL
+      }
+    }
+  }
+  
+  if (!is.null(inicio_secuencia)) {
+    secuencias <- rbind(secuencias, data.frame(inicio = inicio_secuencia, longitud = longitud_actual))
+  }
+  
+  secuencias$size <- secuencias$longitud * (age_range/length(observed))
+  
+  
+  return(secuencias)
+}
+
+# Monte Carlo Simulation
+n_sim <- 10000
+simulated_gaps <- numeric(n_sim)
+simulated_gaps_size <- vector(mode = "list", length = n_sim)
+
+for (i in 1:n_sim) {
+  # Parameterized Uniform Distribution
+  simulated_data <- runif(length(age_acrop), min = min(age_acrop), max = max(age_acrop))
+  
+  # Calculate the simulated frequencies
+  sim_observed <- hist(simulated_data, breaks = CI, plot = FALSE)$counts
+  
+  # Gap tests
+  simulated_gaps[i] <- sum(sim_observed == 0)
+  simulated_gaps_size[[i]] <- gaps(sim_observed)
+}
+
+# Gap size analysis
+gap_size <- list_rbind(simulated_gaps_size, names_to = "simulation")|>
+  group_by(simulation, size)|>
+  reframe(f = n())
+
+yucatan100 <- gap_size|>
+  group_by(size)|>
+  summarise(average = round(mean(f),0), times = length(size), freq = (times+1)/(n_sim+1))|>
+  mutate(site = "Yucatan")
+
+ggplot(yucatan100, aes(x = size, y = freq)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.05)) +
+  scale_x_continuous(breaks = seq(0, 1400, 100)) +
+  geom_hline(yintercept = 0.05,
+             colour = "black",
+             linewidth = 1, 
+             linetype ="longdash") +
+  ylab(expression("Probability under " * H[0] * " of uniform distribution") ) +
+  xlab("Gap size (years)") +
+  geom_line(aes(color = "N_Yucatan, n=64"), linewidth = 1) +  # Adding this line to create a legend
+  scale_color_manual(values = c("N_Yucatan, n=64" = "darkorange"), name = "Legend") +
+  theme_bw() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = c(0.95, 0.95),  # Corrected legend position
+    legend.justification = c(0.95, 0.95),
+    legend.background = element_rect(fill = "white", colour = "white")
+  )
+
 #xxxxxxXXXXXXXX  AGE DISTRIBUTION UNCERTAINTIES ANALYSIS   XXXxxxxxxxxxxxxxxxx
 
-data1<-data[data$source=="This paper"  & #& datos$subgroup!="core"
-                data$group=="palmata",10]
-#checking data
-colnames(data1)
 #calculating density estimates for the apal ages
-pdf0<-density(data1$t_ka,bw=0.09,from=-0.1,to=6)
+pdf0<-density(age_acrop,bw=0.09,from=-0.1,to=6)
 #ploting KDE 
 plot(pdf0,xlim=c(-0.1,6),ylim=c(0,1.2))
 # randomly sampling test
-pdf25_1<-density(data1$t_ka[sample(1:51,25)],bw=0.09,from=-0.1,to=6)
+pdf25_1<-density(age_acrop[sample(1:51,25)],bw=0.09,from=-0.1,to=6)
 b<-pdf0$x[2]-pdf0$x[1]
 sum(abs(pdf0$y-pdf25_1$y)*b)/2
 
@@ -57,7 +271,7 @@ generar_densidades <- function(datos, inicio = 36, fin = 64) {
   return(lista_densidades)
 }
 # function use
-densidades <- generar_densidades(data1$t_ka)
+densidades <- generar_densidades(age_acrop)
 # empty dataframe
 df_densidades <- data.frame()
 # density loop
@@ -99,6 +313,14 @@ p1 <- ggplot(df_diferencias, aes(x = x, y = y, fill = group)) +
   theme(legend.position = "none") #,axis.text.x = element_blank(), axis.ticks.x = element_blank(),axis.title.x = element_blank())
 
 p1
+
+
+
+
+
+
+
+
 
 #xxxxxxxxxxxxxxxxxxxxxxx NULL MODEL FOR THEORETHICAL GAP UNCERTAINTIES  xxxxxxxxxxxxxx
 #Corresponds to Supp.figure 4, Results
