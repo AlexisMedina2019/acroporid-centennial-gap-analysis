@@ -1,19 +1,17 @@
 rm(list=ls(all=TRUE))
-
 library(readxl)
 library(dplyr)
 library(ggplot2)
 library(patchwork)
-library(plotly)
 library(janitor)
-library(readxl)
 library(readr)
 library(purrr)
 library(fitdistrplus)
 library(MASS)
-raw_ages<-read_excel("raw_ages.xlsx")
 
 #XXXXXXXXXXXXXXXXXX  MEXICO FULL AGES ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
+
+raw_ages<-read_excel("raw_ages.xlsx")
 raw_mx <-raw_ages|>
   filter(source == "This paper")
 
@@ -24,28 +22,32 @@ library(stats)
 bw_rawmx_ucv <- bw.ucv(raw_mx$t_ka)
 bw_rawmx_ucv
 
-#WORKING ON I
+#plotting KDE 
 ggplot(raw_mx) +
   aes(x = t_ka) +
   geom_density(aes(y = after_stat(density), fill = group), alpha = 0.55, adjust = bw_rawmx_ucv) +
   scale_fill_manual(values = c("palmata" = "#dc6601", "Other species" = "gray")) +
   theme(strip.background = element_blank(), panel.background = element_blank(), legend.position = "none") +
   scale_x_continuous(limits = c(0, 6), breaks = seq(0, 6, 0.5)) +
-  scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2)) +
+  scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 0.5)) +
   theme(strip.background = element_blank(), panel.background = element_blank(), legend.position = "none", axis.title.x = element_blank()) +
   annotate("rect", xmin = 0.71, xmax = 1.44, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
   annotate("rect", xmin = 1.46, xmax = 1.81, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
   annotate("rect", xmin = 2.47, xmax = 2.88, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
   annotate("rect", xmin = 4.97, xmax = 5.46, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#DAC778") +
-  geom_segment(aes(x = 0.6, y = 1.25, xend = 1.35, yend = 1.25), color = "black", linewidth = 2.25) +
-  geom_segment(aes(x = 1.9, y = 1.25, xend = 2.2, yend = 1.25), color = "black", linewidth = 2.25) +
+  annotate("segment", x = 0.6, xend = 1.35, y = 1.25, yend = 1.25, color = "black", linewidth = 2.25) +
+  annotate("segment", x = 1.9, xend = 2.2, y = 1.25, yend = 1.25, color = "black", linewidth = 2.25) +
   geom_rug(aes(y = 1.5, colour = group), sides = "t", linewidth = 0.5, alpha = 0.5) +
   scale_colour_manual(values = c("palmata" = "#dc6601", "Other species" = "gray"))
 
 
-#XXXXXXXXXXXXXXXXXX  MEXICO´s ACROPORID AGES ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
+#XXXXXXXXXXXXXXXXXX  ACROPORID AGES ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
 # Exploring theoretical distributions for Monte Carlo simulation ----------
+# All years
+age <- raw_ages |>
+  filter(source == "This paper")
 
+ages <- age$t_ka
 # Fitting multiple distributions
 fit_exponential <- fitdist(ages, "exp")
 fit_lognormal <- fitdist(ages, "lnorm")
@@ -126,19 +128,67 @@ Model.500 <- data.frame(
 )
 
 models <- bind_rows(Model.full, Model.500)
-#Uniform distribution allows for a better fit in both scenarios  
 
-# Simulation using Uniform distribution ----------------------
-## Yucatan
+library(systemfonts)
+library(flextable)
+library(officer)
+ft <- flextable(models)
+
+# Dar formato a la tabla (opcional)
+ft <- theme_vanilla(ft) %>%
+  autofit() %>%
+  set_caption(caption = "Resultados del Análisis")
+
+# Guardar la tabla en un documento Word
+doc <- read_docx() %>%
+  body_add_flextable(value = ft) %>%
+  body_add_par("Tabla generada con R", style = "heading 1")
+
+#print(doc, target = "resultados_analisis.docx")
+
+
+#Uniform distribution allows for a better fit in both scenarios 
 
 acrop <-raw_ages|>
   filter(source == "This paper")|>
   filter(species_2 == "BRAN")
 
 age_acrop <- acrop$t_ka
+# Calculate the bandwidth using unbiased cross-validation & constructing the KDE
+acrop <-raw_ages|>
+  filter(source == "This paper")|>
+  filter(species_2 == "BRAN")
+
+# Calculate the partial contribution of values between 0 and 0.5ka
+age_acrop <- acrop$t_ka
 
 bw_mx_ucv <- bw.ucv(age_acrop)
-bw_mx_ucv
+
+kde_plot <- ggplot(acrop, aes(x = t_ka)) +
+  geom_density(aes(y = ..density..), bw = bw_mx_ucv) +
+  labs(title = "Kernel Density Estimate of Age Data",
+       x = "Age (ka)",
+       y = "Density") +
+  theme_minimal()
+
+print(kde_plot)
+
+# Defining the KDE function
+kde_function <- density(age_acrop, bw = bw_mx_ucv)
+
+# Calculating the total area under the KDE curve
+total_area <- sum(kde_function$y) * diff(kde_function$x)[1]
+
+# Calculating the area for the range 0 to 0.5ka
+partial_area <- sum(kde_function$y[kde_function$x >= 0 & kde_function$x <= 0.7]) * diff(kde_function$x)[1]
+
+# Calculate last 0.5ka partial contribution
+partial_contribution <- partial_area / total_area
+
+partial_contribution
+
+# Simulation using Uniform distribution ----------------------
+## Yucatan
 
 age_range <- 1000 * (max(age_acrop) - min(age_acrop))
 
@@ -216,21 +266,23 @@ gap_size <- list_rbind(simulated_gaps_size, names_to = "simulation")|>
   group_by(simulation, size)|>
   reframe(f = n())
 
-yucatan100 <- gap_size|>
+yucatan <- gap_size|>
   group_by(size)|>
   summarise(average = round(mean(f),0), times = length(size), freq = (times+1)/(n_sim+1))|>
   mutate(site = "Yucatan")
 
-ggplot(yucatan100, aes(x = size, y = freq)) +
-  scale_y_continuous(breaks = seq(0, 1, 0.05)) +
+# plotting gaps probability in response to gap size
+
+ggplot(yucatan, aes(x = size, y = freq)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
   scale_x_continuous(breaks = seq(0, 1400, 100)) +
   geom_hline(yintercept = 0.05,
              colour = "black",
              linewidth = 1, 
-             linetype ="longdash") +
-  ylab(expression("Probability under " * H[0] * " of uniform distribution") ) +
+             linetype = "longdash") +
+  ylab(expression("Probability under " * H[0] * " of uniform distribution")) +
   xlab("Gap size (years)") +
-  geom_line(aes(color = "N_Yucatan, n=64"), linewidth = 1) +  # Adding this line to create a legend
+  geom_line(aes(color = "N_Yucatan, n=64"), linewidth = 1) +  
   scale_color_manual(values = c("N_Yucatan, n=64" = "darkorange"), name = "Legend") +
   theme_bw() +
   theme(
@@ -238,11 +290,14 @@ ggplot(yucatan100, aes(x = size, y = freq)) +
     panel.grid.minor.x = element_blank(),
     panel.grid.minor.y = element_blank(),
     panel.grid.major.y = element_blank(),
-    legend.position = c(0.95, 0.95),  # Corrected legend position
-    legend.justification = c(0.95, 0.95),
-    legend.background = element_rect(fill = "white", colour = "white")
+    legend.position = "none") +
+  guides(color = guide_legend(override.aes = list(linetype = 1, size = 1))) +
+  annotation_custom(
+    grob = grid::grobTree(
+      grid::textGrob("N_Yucatan, n=64", x = 0.95, y = 0.95, hjust = 1, gp = grid::gpar(col = "darkorange"))
+    ),
+    xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf
   )
-
 #xxxxxxXXXXXXXX  AGE DISTRIBUTION UNCERTAINTIES ANALYSIS   XXXxxxxxxxxxxxxxxxx
 
 #calculating density estimates for the apal ages
@@ -295,12 +350,10 @@ for(i in names(densidades)) {
   df_diferencias <- rbind(df_diferencias, df_temp)
 }
 
+#ploting gap uncertainties
 library(paletteer)
-colores <- paletteer_c("ggthemes::Gray", 30)
 colores2<-paletteer_c("ggthemes::Orange", 30)
-colores3<- paletteer_c("ggthemes::Red-Black Diverging", 30)
-
-p1 <- ggplot(df_diferencias, aes(x = x, y = y, fill = group)) +
+ggplot(df_diferencias, aes(x = x, y = y, fill = group)) +
   annotate("rect", xmin = 0.71, xmax = 1.44, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") + 
   annotate("rect", xmin = 1.46, xmax = 1.81, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") +
   annotate("rect", xmin = 2.47, xmax = 2.88, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") +
@@ -310,91 +363,8 @@ p1 <- ggplot(df_diferencias, aes(x = x, y = y, fill = group)) +
   labs(x = "age(ka)", y = "Density uncertainties", fill = "Group") +
   coord_cartesian(xlim = c(-0.1, 6))+
   theme_bw()+
-  theme(legend.position = "none") #,axis.text.x = element_blank(), axis.ticks.x = element_blank(),axis.title.x = element_blank())
+  theme(legend.position = "none") 
 
-p1
-
-
-
-
-
-
-
-
-
-#xxxxxxxxxxxxxxxxxxxxxxx NULL MODEL FOR THEORETHICAL GAP UNCERTAINTIES  xxxxxxxxxxxxxx
-#Corresponds to Supp.figure 4, Results
-
-#gaP Function:The gaP function estimates the probability of obtaining gaps larger than a specified threshold 
-#based on a random selection of dates.
-
-#Parameters:
-#  n: Number of random dates.
-#  from and to: Limits of the age interval for which probabilities are estimated.
-#  bw: Bandwidth of the Kernel estimation.
-#  alpha: Complement of confidence; densities below this probability are classified as gaps.
-#  threshold: Minimum gap span.
-
-# Steps:
-  # 1) Generate n random values uniformly distributed between from and to.
-  # 2) Compute the kernel density estimate (pdf1) of these values with bandwidth bw.
-  # 3) Calculate the minimum density threshold (d_min) based on alpha.
-  # 4) Identify intervals where the density exceeds d_min.
-  # 5) Compute the gaps between consecutive intervals.
-  # 6) Return the total count of gaps exceeding the specified threshold and the gap lengths.
-
-
-gaP<-function(n,from,to,bw,alpha,threshold=350){
-  s1<-runif(n,min=from,max=to)
-  pdf1<-density(s1,bw=bw)
-  d_min<-alpha/(to-from)
-  t1<-cbind(1:512,pdf1$x,pdf1$y)[pdf1$y>d_min,]
-  gaps<-t1[-1,1]-t1[-nrow(t1),1]
-  gaps<-gaps[which(gaps!=1)]*(to-from)/512
-  result<-list(sum(gaps>threshold),gaps)
-  return(result)
-}
-
-# example usage:
-gaP(30,0,6000,100,alpha=0.05)
-
-gaPs<-function(n,from,to,bw,alpha,threshold=350,N=1000){
-  occurrences<-vector()
-  for(i in 1:N){
-    occurrences[[i]]<-gaP(n,from,to,bw,alpha,threshold=threshold)[[1]]
-  }
-  return(table(occurrences))
-}
-
-gaPs(30,0,6000,100,alpha=0.05)
-
-color<-colorRampPalette(c("#FFFFFF","#DAC778"))(100)
-
-gaPs1<-function(n1,n2,from,to,bw,alpha=0.05,threshold=350,N=1000){
-  occurrences1<-list()
-  occurrences2<-matrix(ncol=5,nrow=(n2-n1+1))
-  for(i in n1:n2){
-    occurrences1[[i-n1+1]]<-gaPs(i,from,to,bw,alpha,
-                                 threshold=threshold,N=1000)
-    occurrences2[i-n1+1,
-                 1:length(occurrences1[[i-n1+1]])]<-occurrences1[[i-n1+1]]
-  }
-  rownames(occurrences2)<-n1:n2
-  occurrences2<-ifelse(is.na(occurrences2),0,occurrences2)
-  occurrences2<-t(apply(occurrences2,1,function(x) x/sum(x)))
-  image(n1:n2,0:(ncol(occurrences2)-1),occurrences2,col=color,xlab="n",
-        ylab=paste("Number of gaps > ",threshold),
-        main=paste("P(Number of gaps > ",threshold," | n)"))
-  legend("topright",legend=seq(10,100,10)/100,
-         col=color[seq(10,100,10)],pch=15,title="Probability",bg="white",cex=0.8)
-  return(occurrences2)
-}
-
-par(mfrow=c(2,1))
-gaPs1(n1=10,n2=100,0,6000,100,alpha=0.05,N=10000)
-gaPs1(n1=10,n2=100,0,6000,100,alpha=0.05,threshold=750,N=10000)
-
-#XXXXXXXXXXXXXXXXXX  MEXICO (PUNTA MAROMA) ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
 #XXXXXXXXXXXXXXXXXX ASSESSING SAMPLE SIZE IMPACT xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 #Accessing resampling related uncertainties
@@ -402,7 +372,7 @@ desajuste<-matrix(ncol=1000,nrow=55)
 for(j in 1:nrow(desajuste)){
   for(i in 1:ncol(desajuste)){
     desajuste[j,i]<-sum(abs(pdf0$y - 
-                              density(data1$t_ka[sample(1:64,(j+9))],bw=0.09,from=-0.1,to=6)$y)*b)/2
+                              density(age_acrop[sample(1:64,(j+9))],bw=0.09,from=-0.1,to=6)$y)*b)/2
   }
 }
 
@@ -417,7 +387,8 @@ df <- data.frame(
   q975 = apply(desajuste, 1, quantile, 0.975)
 )
 
-D<-ggplot(df, aes(x = x, y = mean)) +
+# plotting sample size impact 
+ggplot(df, aes(x = x, y = mean)) +
   geom_ribbon(aes(ymin = q025, ymax = q975), alpha = 0.1) +
   geom_ribbon(aes(ymin = q25, ymax = q75), alpha = 0.4) +
   geom_point(shape = 16) +
@@ -427,177 +398,8 @@ D<-ggplot(df, aes(x = x, y = mean)) +
   theme_bw()+
   geom_hline(yintercept = 0.1, color = "black", linetype = "dashed")+
   annotate("rect", xmin = 37, xmax = 55, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "lightgreen")
-D
 
-
-#XXXXXXXXXXXXXXXXXX  ST CROIX POOLED DATA ANALYSIS    XXXXXXXXXXXXXXXXXXXXXXX
-#corresponds to gap uncertainties analysis for age information published by Hubbard et al, 2005 (Lang Bank) and Hubbard et al, 2013 (Buck island)
-
-datascx<-data[data$source=="Hubbard et al.,05;13" &
-                  data$group=="palmata",c(10:12)]
-# Appliying Unbiased Cross-Validation (UCV) method
-#to select the optimal bandwidth for kernel density
-bw_sc_ucv <- bw.ucv(datascx$t_ka)
-bw_sc_ucv
-# Note. low resolution of data penalises with a large bandwidth so instead of use calculated bandwidth
-# we use the bandwidth corresponding to high resolution data from Mexico Punta Maroma, settled around centennia (0.0889)
-
-pdf0_sc_ucv <- density(datascx$t_ka, bw = 0.09) 
-
-data_sc<-data[data$source=="Hubbard et al.,05;13" &
-                  data$group=="palmata",10]
-
-
-pdf0sc<-density(data_sc$t_ka,bw=0.09,from=-0.1,to=10)
-pdf25sc_1<-density(data_sc$t_ka[sample(1:52,25)],bw=0.09,from=-0.1,to=10)
-bs<-pdf0sc$x[2]-pdf0sc$x[1]
-sum(abs(pdf0sc$y-pdf25sc_1$y)*bs)/2
-# Creating a function to generate densities with different sample sizes 
-generar_densidades_sc <- function(datos, inicio = 5, fin = 52) {
-  # Creating empty list to store results
-  lista_densidades_sc <- list()
-  
-  # Loop for each sample size
-  for(n in seq(inicio, fin, by = 5)) {
-    # generating Sample 
-    muestra <- datos[sample(1:length(datos), n)]
-    
-    # Calculating density
-    densidad_sc <- density(muestra, bw = 0.09, from = -0.1, to = 10)
-    
-    # Storing densities 
-    lista_densidades_sc[[paste0("pdf", n)]] <- densidad_sc
-  }
-  
-  # return densities list
-  return(lista_densidades_sc)
-}
-# function use
-densidades_sc <- generar_densidades_sc(data_sc$t_ka)
-
-# empty dataframe
-df_densidades_sc <- data.frame()
-
-# density loop
-for(i in names(densidades_sc)) {
-  # temporal dataframe
-  df_temp_sc <- data.frame(x = densidades_sc[[i]]$x, y = densidades_sc[[i]]$y, group = i)
-  
-  # adding temporal to main dataframe
-  df_densidades_sc <- rbind(df_densidades_sc, df_temp_sc)
-}
-
-#Evaluating uncertainties in densities
-# Empty dataframe to store density differences
-df_diferencias_sc <- data.frame()
-
-# Creating a loop for each density on the list
-for(i in names(densidades_sc)) {
-  # Creating temporal dataframe to store delta densities
-  df_temp_sc<- data.frame(x = pdf0sc$x, y = pdf0sc$y - densidades_sc[[i]]$y, group = i)
-  
-  # Adding temporal dataframe with delta densities to the main dataframe
-  df_diferencias_sc <- rbind(df_diferencias_sc, df_temp_sc)
-}
-
-
-p1_sc <- ggplot(df_diferencias_sc, aes(x = x, y = y, fill = group)) +
-  annotate("rect", xmin = 2, xmax = 3.395, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") + 
-  annotate("rect", xmin = 3.405, xmax = 4.5, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") +
-  annotate("rect", xmin = 5.2, xmax = 5.9, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") +
-  geom_area(alpha = 0.5) +
-  scale_fill_manual(values = colores) +
-  labs(x = "age (ka)", y = "Density uncertainties", fill = "Group") +
-  coord_cartesian(xlim = c(-0.1, 10))+
-  theme_bw()+
-  theme(legend.position = "none")
-p1_sc
-
-#XXXXXXXXXXXXXXXXXX BARBADOS DATA ANALYSIS XXXXXXXXXXXXXXXXXXXXXXX
-#corresponds to gap uncertainties analysis for age information published by Abdul et al, 2016 
-
-databx<-data[data$source=="Abdul et al.,16" &
-                 data$group=="palmata",c(10:12)]
-# Appliying 381 (UCV) method
-#to select the optimal bandwidth for kernel density
-bw_b_ucv <- bw.ucv(databx$t_ka)
-bw_b_ucv
-pdf0_b_ucv <- density(databx$t_ka, bw = bw_b_ucv)
-data_barbados<-data[data$source=="Abdul et al.,16" &
-                        data$group=="palmata",10]
-
-pdf0b<-density(data_barbados$t_ka,bw=0.096,from=9,to=14)
-pdf25b_1<-density(data_barbados$t_ka[sample(1:105,25)],bw=0.096,from=9,to=14)
-bb<-pdf0b$x[2]-pdf0b$x[1]
-sum(abs(pdf0b$y-pdf25b_1$y)*bb)/2
-
-# Creating a function to generate densities with different sample sizes 
-generar_densidades_b <- function(datos, inicio = 5, fin = 100) {
-  # Creating empty list to store results
-  lista_densidades_b <- list()
-  
-  # Loop for each sample size
-  for(n in seq(inicio, fin, by = 5)) {
-    # generating Sample 
-    muestra <- datos[sample(1:length(datos), n)]
-    
-    # Calculating density
-    densidad_b <- density(muestra, bw = 0.09, from = 9, to = 14)
-    
-    # Storing densities 
-    lista_densidades_b[[paste0("pdf", n)]] <- densidad_b
-  }
-  
-  # return densities list
-  return(lista_densidades_b)
-}
-# function use
-densidades_b <- generar_densidades_b(data_barbados$t_ka)
-
-# empty dataframe
-df_densidades_b <- data.frame()
-
-# density loop
-for(i in names(densidades_b)) {
-  # temporal dataframe
-  df_temp_b <- data.frame(x = densidades_b[[i]]$x, y = densidades_b[[i]]$y, group = i)
-  
-  # adding temporal to main dataframe
-  df_densidades_b <- rbind(df_densidades_b, df_temp_b)
-}
-
-#Evaluating uncertainties in densities
-# Empty dataframe to store density differences
-df_diferencias_b <- data.frame()
-
-# Creating a loop for each density on the list
-for(i in names(densidades_b)) {
-  # Creating temporal dataframe to store delta densities
-  df_temp_b <- data.frame(x = pdf0b$x, y = pdf0b$y - densidades_b[[i]]$y, group = i)
-  
-  # Adding temporal dataframe with delta densities to the main dataframe
-  df_diferencias_b <- rbind(df_diferencias_b, df_temp_b)
-}
-
-
-p1_b <- ggplot(df_diferencias_b, aes(x = x, y = y, fill = group)) +
-  annotate("rect", xmin = 10, xmax = 10.35, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") + 
-  annotate("rect", xmin = 11, xmax = 11.27, ymin = -Inf, ymax = Inf, alpha = 0.15, fill = "#DAC778") +
-  geom_area(alpha = 0.5) +
-  scale_fill_manual(values = colores) +
-  labs(x = "age (ka)", y = "Density uncertainties", fill = "Group") +
-  coord_cartesian(xlim = c(9,14))+
-  theme_bw()+
-  theme(legend.position = "none")
-p1_b
-
-#plotting gap analysis by dataframe
-#corresponds to Supplementary Figure 3.
-combined_plot2 <- p1/p1_sc/p1_b
-combined_plot2
-
-
-#xxxxxxxxxxxxxxxxxxxxxxx REGIONAL TRENDS IN GEOLOGICAL RECORDxxxxxxxxxxxxxx
+#xxxxxxxxxxxxxxxxxxxxxxx REGIONAL TRENDS IN GEOLOGICAL RECORD xxxxxxxxxxxxxx
 #Corresponds to figure 4, Results
 regional<-read_excel("raw_ages.xlsx")# ADJUSTED TEMPORAL FRAME 
 
@@ -621,13 +423,13 @@ A<-ggplot(fNW_Car) +
   scale_x_continuous(limits = c(0, 14), breaks = seq(0, 14, 2))+
   scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2))+
   theme(strip.background = element_blank(), panel.background = element_blank(),
-        legend.position = "none", axis.title.x = element_blank(),
-        axis.text.x = element_blank(), axis.ticks.x = element_blank())+
-  annotate("rect", xmin = 0.71, xmax = 1.44, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") + #https://www.color-name.com/neutral-yellow.color
-  annotate("rect", xmin = 1.46, xmax = 1.81, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") +
-  annotate("rect", xmin = 2.47, xmax = 2.88, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") +
-  annotate("rect", xmin = 4.97, xmax = 5.46, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27")+
-  geom_segment(aes(x = 0.7, y = 1.25, xend = 1.45, yend = 1.25), color = "black",linewidth= 1.25)+
+        legend.position = "none", axis.title.x = element_blank())+
+  annotate("rect", xmin = 0.71, xmax = 1.44, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") + 
+  annotate("rect", xmin = 1.46, xmax = 1.81, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") +
+  annotate("rect", xmin = 2.47, xmax = 2.88, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") +
+  annotate("rect", xmin = 4.97, xmax = 5.46, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27")+
+  annotate("segment", x = 0.6, xend = 1.35, y = 1.25, yend = 1.25, color = "black", linewidth = 2.25) +
+  annotate("segment", x = 1.9, xend = 2.2, y = 1.25, yend = 1.25, color = "black", linewidth = 2.25) +
   annotate("text", x = 13.5, y = 1.25, label = "N_Yucatan", color="black")+
   geom_rug(aes(y = 1.5, colour = group), sides = "t", linewidth = 0.5, alpha = 0.5) +
   scale_colour_manual(values = c("palmata" = "#dc6601", "Other species" = "gray"))
@@ -641,9 +443,9 @@ B<-ggplot(fSW_Car) +
   scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2))+
   theme(strip.background = element_blank(), panel.background = element_blank(),
         legend.position = "none", axis.title.x = element_blank())+
-  annotate("rect", xmin = 1.9, xmax = 2.72, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") + #https://www.color-name.com/neutral-yellow.color
-  annotate("rect", xmin = 3.68, xmax = 4.2, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") +
-  annotate("rect", xmin = 5.54, xmax = 6.0, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") +
+  annotate("rect", xmin = 1.9, xmax = 2.72, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") + 
+  annotate("rect", xmin = 3.68, xmax = 4.2, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") +
+  annotate("rect", xmin = 5.54, xmax = 6.0, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") +
   annotate("text", x = 13.5, y = 1.25, label = "Belize", color="black") +
   geom_rug(aes(y = 1.5, colour = group), sides = "t", linewidth = 0.5, alpha = 0.5) +
   scale_colour_manual(values = c("palmata" = "#dc6601", "Other species" = "gray"))
@@ -655,11 +457,11 @@ C<-ggplot(fE_Car) +
   theme(strip.background = element_blank(), panel.background = element_blank(), axis.title.x = element_blank(),legend.position = "none") +
   scale_x_continuous(limits = c(0, 14), breaks = seq(0, 14, 2))+
   scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2))+
-  annotate("rect", xmin = 2.0, xmax = 3.0, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") +
-  annotate("rect", xmin = 5.2, xmax = 5.9, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27")+
-  geom_segment(aes(x = 3.6, y = 1.25, xend = 4.8, yend = 1.25), color = "black",linewidth= 1.25)+
-  geom_segment(aes(x = 1.0, y = 1.25, xend = 2.5, yend = 1.25), color = "black",linewidth= 1.25)+
-  geom_segment(aes(x = 0.0, y = 1.25, xend = 0.3, yend = 1.25), color = "black",linewidth= 1.25)+
+  annotate("rect", xmin = 2.0, xmax = 3.0, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") +
+  annotate("rect", xmin = 5.2, xmax = 5.9, ymin = -Inf, ymax = Inf, alpha = 0.01, fill = "#ee9f27")+
+  annotate("segment", x = 3.6, xend = 4.8, y = 1.25,  yend = 1.25, color = "black",linewidth= 2.25)+
+  annotate("segment", x = 1.0, xend = 2.5, y = 1.25,  yend = 1.25, color = "black",linewidth= 2.25)+
+  annotate("segment", x = 0.0, xend = 0.3, y = 1.25,  yend = 1.25, color = "black",linewidth= 2.25)+
   annotate("text", x = 13.5, y = 1.25, label = "Saint Croix", color="black")+
   geom_rug(aes(y = 1.5, colour = group), sides = "t", linewidth = 0.5, alpha = 0.5) +
   scale_colour_manual(values = c("palmata" = "#dc6601", "Other species" = "gray"))
@@ -671,27 +473,324 @@ D<-ggplot(fLA_Car) +
   theme(strip.background = element_blank(), panel.background = element_blank(), legend.position = "none") +
   scale_x_continuous(limits = c(0,14), breaks = seq(0, 14, 2))+
   scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2))+
-  annotate("rect", xmin = 11.3, xmax = 11.02, ymin = -Inf, ymax = Inf, alpha = 0.05, fill = "#DAC778",colour ="#ee9f27") +  
-  annotate("rect", xmin = 9.98, xmax = 10.35, ymin = -Inf, ymax = Inf, alpha = 0.025, fill = "#DAC778",colour ="#ee9f27")+  
+  annotate("rect", xmin = 11.3, xmax = 11.02, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") +  
+  annotate("rect", xmin = 9.98, xmax = 10.35, ymin = -Inf, ymax = Inf, alpha = 0.1, fill = "#ee9f27") +  
   annotate("text", x = 13.5, y = 1.25, label = "Barbados", color="black")+
   annotate("text", x = 11.4, y = 1.25, label = "MWP-1B", color="black")+
-  geom_rug(aes(y = 1.5, colour = group), sides = "t", size = 0.5, alpha = 0.5) +
+  geom_rug(aes(y = 1.5, colour = group), sides = "t", linewidth = 0.5, alpha = 0.5) +
   scale_colour_manual(values = c("palmata" = "#dc6601", "Other species" = "gray"))
 
 # XXXXXXXXXXXXXXXXXX COMPOSITE KDE FOR ACROPORIDS XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 regional_palmata <- subset(regional, group == "palmata")
 
-
 E<-ggplot(regional_palmata, aes(x = t_ka)) +
   geom_density(aes(y = after_stat(density), fill = source), alpha = 0.85, adjust = 0.088) +
   scale_fill_manual(values = c("This paper" = "#dc6601", "Gischler et al.,23" = "#ee9f27","Hubbard et al.,05;13" = "#FCA360", "Abdul et al.,16" = "#FFC125")) +
-  theme(strip.background = element_blank(), panel.background = element_blank(), legend.position = "bottom") +
+  theme(strip.background = element_blank(), panel.background = element_blank(), , legend.position = "none") +
   labs(x = "t_ka", y = "Density (after stats)") +
   scale_x_continuous(limits = c(0,14), breaks = seq(0, 14, 2))+
-  scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2))
+  scale_y_continuous(limits = c(0, 1.5), breaks = seq(0, 1.5, 1/2))+
+  geom_rug(aes(y = 1.5, colour = source), sides = "t", linewidth = 0.5, alpha = 0.5) +
+  scale_colour_manual(values = c("This paper" = "#dc6601", "Gischler et al.,23" = "#ee9f27","Hubbard et al.,05;13" = "#FCA360", "Abdul et al.,16" = "#FFC125"))
 
-combined_plot <- A / B/ C/ D/ E
+combined_plot <- A/B/C/D/E
 combined_plot 
+
+# Regional Approach for Gap Probabilities analysis using Uniform distribution simulation ----------------------
+## Barbados
+acrop <-raw_ages|>
+  filter(source == "Abdul et al.,16")|>
+  filter(species_2 == "BRAN")
+
+age_acrop <- acrop$t_ka
+
+age_range <- 1000 * (max(age_acrop) - min(age_acrop))
+
+intervals <- 100
+
+CI <- round(age_range/intervals, 0)
+
+# Histogram to visualize the data
+hist(age_acrop,
+     breaks = CI, 
+     main = paste("Barbados,", intervals, "years intervals"),
+     xlab = "Age (ka)",
+     ylab = "Frequency")
+
+# Defining class intervals
+breaks <- hist(age_acrop, 
+               breaks = CI, 
+               main = paste("Barbados,", intervals, "years intervals"),
+               xlab = "Age (ka)",
+               ylab = "Frequency")$breaks
+
+# Calculate the observed frequencies
+observed <- hist(age_acrop, breaks = breaks, plot = FALSE)$counts
+
+# Monte Carlo Simulation
+n_sim <- 10000
+simulated_gaps <- numeric(n_sim)
+simulated_gaps_size <- vector(mode = "list", length = n_sim)
+
+for (i in 1:n_sim) {
+  simulated_data <- runif(81, min = min(age_acrop), max = max(age_acrop))
+  
+  sim_observed <- hist(simulated_data, breaks = CI, plot = FALSE)$counts
+  
+  simulated_gaps[i] <- sum(sim_observed == 0)
+  simulated_gaps_size[[i]] <- gaps(sim_observed)
+}
+
+# Gap size analysis
+
+gap_size <- list_rbind(simulated_gaps_size, names_to = "simulation")|>
+  group_by(simulation, size)|>
+  reframe(f = n())
+
+barbados <- gap_size|>
+  group_by(size)|>
+  summarise(average = round(mean(f),0), times = length(size), freq = (times+1)/(n_sim+1))|>
+  mutate(site = "Barbados")
+
+## Belize
+acrop <-raw_ages|>
+  filter(source == "Gischler et al.,23")|>
+  filter(species_2 == "BRAN")
+
+age_acrop <- acrop$t_ka
+
+age_range <- 1000 * (max(age_acrop) - min(age_acrop))
+
+intervals <-100
+
+CI <- round(age_range/intervals, 0)
+
+# Histogram to visualize the data
+hist(age_acrop,
+     breaks = CI, 
+     main = paste("Barbados,", intervals, "years intervals"),
+     xlab = "Age (ka)",
+     ylab = "Frequency")
+
+# Defining class intervals
+breaks <- hist(age_acrop, 
+               breaks = CI, 
+               main = paste("Barbados,", intervals, "years intervals"),
+               xlab = "Age (ka)",
+               ylab = "Frequency")$breaks
+
+# Calculate the observed frequencies
+observed <- hist(age_acrop, breaks = breaks, plot = FALSE)$counts
+
+# Monte Carlo simulation
+n_sim <- 10000
+simulated_gaps <- numeric(n_sim)
+simulated_gaps_size <- vector(mode = "list", length = n_sim)
+
+for (i in 1:n_sim) {
+  simulated_data <- runif(69, min = min(age_acrop), max = max(age_acrop))
+  
+  sim_observed <- hist(simulated_data, breaks = CI, plot = FALSE)$counts
+  
+  simulated_gaps[i] <- sum(sim_observed == 0)
+  simulated_gaps_size[[i]] <- gaps(sim_observed)
+}
+
+# Gap size analysis
+
+gap_size <- list_rbind(simulated_gaps_size, names_to = "simulation")|>
+  group_by(simulation, size)|>
+  reframe(f = n())
+
+belize <- gap_size|>
+  group_by(size)|>
+  summarise(average = round(mean(f),0), times = length(size), freq = (times+1)/(n_sim+1))|>
+  mutate(site = "Belize")
+
+# Saint Croix
+acrop <-raw_ages|>
+  filter(source == "Hubbard et al.,05;13")|>
+  filter(species_2 == "BRAN")
+
+age_acrop <- acrop$t_ka
+
+age_range <- 1000 * (max(age_acrop) - min(age_acrop))
+
+intervals <- 100
+
+CI <- round(age_range/intervals, 0)
+
+# Histogram to visualize the data
+hist(age_acrop,
+     breaks = CI, 
+     main = paste("Saint Croix,", intervals, "years intervals"),
+     xlab = "Age (ka)",
+     ylab = "Frequency")
+
+# Defining class intervals
+breaks <- hist(age_acrop, 
+               breaks = CI, 
+               main = paste("Saint Croix,", intervals, "years intervals"),
+               xlab = "Age (ka)",
+               ylab = "Frequency")$breaks
+
+# Calculate the observed frequencies
+observed <- hist(age_acrop, breaks = breaks, plot = FALSE)$counts
+
+# Monte Carlo simulations
+n_sim <- 10000
+simulated_gaps <- numeric(n_sim)
+simulated_gaps_size <- vector(mode = "list", length = n_sim)
+
+for (i in 1:n_sim) {
+  simulated_data <- runif(52, min = min(age_acrop), max = max(age_acrop))
+  
+  sim_observed <- hist(simulated_data, breaks = CI, plot = FALSE)$counts
+  
+  simulated_gaps[i] <- sum(sim_observed == 0)
+  simulated_gaps_size[[i]] <- gaps(sim_observed)
+}
+
+# Gap size analysis
+gap_size <- list_rbind(simulated_gaps_size, names_to = "simulation")|>
+  group_by(simulation, size)|>
+  reframe(f = n())
+
+stc <- gap_size|>
+  group_by(size)|>
+  summarise(average = round(mean(f),0), times = length(size), freq = (times+1)/(n_sim+1))|>
+  mutate(site = "Saint Croix")
+
+
+## All probabilities in a single plot 
+
+bind_rows(yucatan, barbados, belize, stc) |>
+  filter(size <= 1300) |>
+  mutate(Region = factor(
+    site,
+    levels = c("Yucatan", "Barbados", "Belize", "Saint Croix"),
+    labels = c(
+      "Yucatan (n = 64)",
+      "Barbados (n = 81)",
+      "Belize (n = 69)",
+      "Saint Croix (n = 52)"
+    )
+  )) |>
+  ggplot(aes(x = size, y = freq)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.05)) +
+  scale_x_continuous(breaks = seq(0, 1400, 100)) +
+  geom_hline(yintercept = 0.05,
+             colour = "black",
+             linewidth = 1, 
+             linetype = "longdash") +
+  ylab(expression("Probability under " * H[0] * " of uniform distribution") ) +
+  xlab("Gap size (years)") +
+  geom_line(aes(colour = Region), linewidth = 1) +
+  theme_bw() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "inside",
+    legend.justification = c(0.95, 0.95),
+    legend.background = element_rect(fill = "white", colour = "white")
+  )
+
+
+bind_rows(yucatan, barbados, belize, stc) |>
+  write_csv(file = "Table_gap_size_pvalues.csv")
+
+
+# Large gaps in a composite analyses of all sites -------------------------
+raw_ages <- read_excel("raw_ages.xlsx")
+acrop <-raw_ages|>
+  filter(species_2 == "BRAN")
+
+age_acrop <- acrop$t_ka
+
+age_range <- 1000 * (max(age_acrop) - min(age_acrop))
+
+intervals <- 100
+
+CI <- round(age_range/intervals, 0)
+
+# Histogram to visualize the data
+hist(age_acrop,
+     breaks = CI, 
+     main = paste("All sites,", intervals, "years intervals"),
+     xlab = "Age (ka)",
+     ylab = "Frequency")
+
+# Defining class intervals
+breaks <- hist(age_acrop, 
+               breaks = CI, 
+               main = paste("All sites,", intervals, "years intervals"),
+               xlab = "Age (ka)",
+               ylab = "Frequency")$breaks
+
+# Calculate the observed frequencies
+observed <- hist(age_acrop, breaks = breaks, plot = FALSE)$counts
+
+# Monte Carlo simulation
+n_sim <- 10000
+simulated_gaps <- numeric(n_sim)
+simulated_gaps_size <- vector(mode = "list", length = n_sim)
+
+for (i in 1:n_sim) {
+  simulated_data <- runif(266, min = min(age_acrop), max = max(age_acrop))
+  
+  sim_observed <- hist(simulated_data, breaks = CI, plot = FALSE)$counts
+  
+  simulated_gaps[i] <- sum(sim_observed == 0)
+  simulated_gaps_size[[i]] <- gaps(sim_observed)
+}
+
+# Gap size analysis
+
+gap_size <- list_rbind(simulated_gaps_size, names_to = "simulation")|>
+  group_by(simulation, size)|>
+  reframe(f = n())
+
+all_sites <- gap_size|>
+  group_by(size)|>
+  summarise(average = round(mean(f),0), times = length(size), freq = (times+1)/(n_sim+1))|>
+  mutate(site = "All sites")
+
+
+bind_rows(yucatan, barbados, belize, stc, all_sites) |>
+  filter(size <= 1300) |>
+  mutate(Region = factor(
+    site,
+    levels = c("Yucatan", "Barbados", "Belize", "Saint Croix", "All sites"),
+    labels = c(
+      "Yucatan (n = 64)",
+      "Barbados (n = 81)",
+      "Belize (n = 69)",
+      "Saint Croix (n = 52)",
+      "All sites (n = 266)"
+    )
+  )) |>
+  ggplot(aes(x = size, y = freq)) +
+  scale_y_continuous(breaks = seq(0, 1, 0.2)) +
+  scale_x_continuous(breaks = seq(50, 14000, 100)) +
+  geom_hline(yintercept = 0.05,
+             colour = "black",
+             linetype="longdash",
+             linewidth = 1) +
+  ylab(expression("Probability under " * H[0] * " of uniform distribution") ) +
+  xlab("Gap size (years)") +
+  geom_line(aes(colour = Region), linewidth = 1) +
+  theme_bw() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "inside",
+    legend.justification = c(0.95, 0.95),
+    legend.background = element_rect(fill = "white", colour = "white")
+  )
 
 
 
